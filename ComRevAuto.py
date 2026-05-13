@@ -97,6 +97,18 @@ def find_key_column(df):
     return None
 
 
+def get_sheet_names(uploaded_file):
+    try:
+        uploaded_file.seek(0)
+        with pd.ExcelFile(uploaded_file) as excel:
+            sheet_names = excel.sheet_names
+    except Exception:
+        sheet_names = []
+    finally:
+        uploaded_file.seek(0)
+    return sheet_names
+
+
 def normalize_key(value):
     if pd.isna(value):
         return ""
@@ -295,7 +307,7 @@ st.markdown("Compare original and revised Excel files to identify changes")
 
 st.sidebar.header("Upload Files")
 original_file = st.sidebar.file_uploader(
-    "Upload Original Excel File (Sheet 2)",
+    "Upload Original Excel File",
     type=["xlsx", "xls"],
     key="original",
 )
@@ -305,13 +317,38 @@ revised_file = st.sidebar.file_uploader(
     key="revised",
 )
 
+st.sidebar.subheader("Select sheets to compare")
+original_sheet_name = None
+revised_sheet_name = None
+
+if original_file is not None:
+    original_sheet_names = get_sheet_names(original_file)
+    if original_sheet_names:
+        default_index = 1 if len(original_sheet_names) > 1 else 0
+        original_sheet_name = st.sidebar.selectbox(
+            "Original sheet",
+            original_sheet_names,
+            index=default_index,
+            key="original_sheet",
+        )
+
+if revised_file is not None:
+    revised_sheet_names = get_sheet_names(revised_file)
+    if revised_sheet_names:
+        revised_sheet_name = st.sidebar.selectbox(
+            "Revised sheet",
+            revised_sheet_names,
+            index=0,
+            key="revised_sheet",
+        )
+
 if original_file is None or revised_file is None:
     st.info("👈 Please upload both Excel files in the sidebar to start comparing.")
 else:
     try:
         with st.spinner("Loading files..."):
-            original_df = read_excel_clean(original_file, sheet_name=1)
-            revised_df = read_excel_clean(revised_file, sheet_name=0)
+            original_df = read_excel_clean(original_file, sheet_name=original_sheet_name or 0)
+            revised_df = read_excel_clean(revised_file, sheet_name=revised_sheet_name or 0)
             comparison = build_comparison(original_df, revised_df)
 
         changes_df = comparison["changes_df"]
@@ -335,10 +372,13 @@ else:
 
         st.divider()
 
-        st.subheader("📄 Original File (Sheet 2)")
+        original_sheet_label = original_sheet_name if isinstance(original_sheet_name, str) else f"Sheet {original_sheet_name + 1 if isinstance(original_sheet_name, int) else 1}"
+        revised_sheet_label = revised_sheet_name if isinstance(revised_sheet_name, str) else f"Sheet {revised_sheet_name + 1 if isinstance(revised_sheet_name, int) else 1}"
+
+        st.subheader(f"📄 Original File ({original_sheet_label})")
         st.dataframe(original_df, use_container_width=True, height=250)
 
-        st.subheader("📄 Revised File")
+        st.subheader(f"📄 Revised File ({revised_sheet_label})")
         st.dataframe(revised_df, use_container_width=True, height=250)
 
         st.divider()
