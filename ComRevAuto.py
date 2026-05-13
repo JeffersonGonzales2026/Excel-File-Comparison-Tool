@@ -71,8 +71,54 @@ def header_score(row):
     return score
 
 
-def read_excel_clean(uploaded_file, sheet_name):
-    raw_df = pd.read_excel(uploaded_file, sheet_name=sheet_name, header=None, dtype=object)
+def _load_workbook_sheet_to_df(uploaded_file, sheet_name, password=None):
+    try:
+        uploaded_file.seek(0)
+        workbook = openpyxl.load_workbook(
+            filename=BytesIO(uploaded_file.read()),
+            data_only=True,
+            read_only=True,
+            password=password,
+        )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "ole2 compound document" in error_msg:
+            raise ValueError("Invalid Excel file format. Please ensure the file is a valid .xlsx or .xls Excel file.")
+        elif "password" in error_msg or "encrypted" in error_msg or "bad password" in error_msg:
+            raise ValueError("Incorrect password or file is not password-protected.")
+        else:
+            raise ValueError(f"Error opening workbook: {str(e)}")
+
+    if isinstance(sheet_name, int):
+        sheet_name = workbook.sheetnames[sheet_name]
+
+    worksheet = workbook[sheet_name]
+    rows = list(worksheet.values)
+    if not rows:
+        return pd.DataFrame()
+    return pd.DataFrame(rows)
+
+
+def read_excel_clean(uploaded_file, sheet_name, password=None):
+    try:
+        if password:
+            raw_df = _load_workbook_sheet_to_df(uploaded_file, sheet_name, password=password)
+        else:
+            uploaded_file.seek(0)
+            raw_df = pd.read_excel(
+                uploaded_file,
+                sheet_name=sheet_name,
+                header=None,
+                dtype=object,
+            )
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "ole2 compound document" in error_msg:
+            raise ValueError("Invalid Excel file format. Please ensure the file is a valid .xlsx or .xls Excel file.")
+        elif "password" in error_msg or "encrypted" in error_msg:
+            raise ValueError("File appears to be password-protected. Please enter the correct password.")
+        else:
+            raise ValueError(f"Error reading Excel file: {str(e)}")
 
     if raw_df.empty:
         return raw_df
@@ -97,12 +143,34 @@ def find_key_column(df):
     return None
 
 
-def get_sheet_names(uploaded_file):
+def get_sheet_names(uploaded_file, password=None):
+    uploaded_file.seek(0)
+    if password:
+        try:
+            workbook = openpyxl.load_workbook(
+                filename=BytesIO(uploaded_file.read()),
+                read_only=True,
+                password=password,
+            )
+            sheet_names = workbook.sheetnames
+        except Exception as e:
+            st.error(f"❌ Error reading password-protected file: {str(e)}")
+            sheet_names = []
+        finally:
+            uploaded_file.seek(0)
+        return sheet_names
+
     try:
-        uploaded_file.seek(0)
         with pd.ExcelFile(uploaded_file) as excel:
             sheet_names = excel.sheet_names
-    except Exception:
+    except Exception as e:
+        error_msg = str(e).lower()
+        if "ole2 compound document" in error_msg:
+            st.error("❌ Invalid Excel file format. Please ensure the file is a valid .xlsx or .xls Excel file.")
+        elif "password" in error_msg or "encrypted" in error_msg:
+            st.error("❌ File appears to be password-protected. Please enter the password above.")
+        else:
+            st.error(f"❌ Error reading file: {str(e)}")
         sheet_names = []
     finally:
         uploaded_file.seek(0)
@@ -320,9 +388,19 @@ revised_file = st.sidebar.file_uploader(
 st.sidebar.subheader("Select sheets to compare")
 original_sheet_name = None
 revised_sheet_name = None
+original_password = st.sidebar.text_input(
+    "Original file password (if protected)",
+    type="password",
+    key="original_password",
+)
+revised_password = st.sidebar.text_input(
+    "Revised file password (if protected)",
+    type="password",
+    key="revised_password",
+)
 
 if original_file is not None:
-    original_sheet_names = get_sheet_names(original_file)
+    original_sheet_names = get_sheet_names(original_file, password=original_password or None)
     if original_sheet_names:
         default_index = 1 if len(original_sheet_names) > 1 else 0
         original_sheet_name = st.sidebar.selectbox(
@@ -333,7 +411,7 @@ if original_file is not None:
         )
 
 if revised_file is not None:
-    revised_sheet_names = get_sheet_names(revised_file)
+    revised_sheet_names = get_sheet_names(revised_file, password=revised_password or None)
     if revised_sheet_names:
         revised_sheet_name = st.sidebar.selectbox(
             "Revised sheet",
@@ -347,8 +425,16 @@ if original_file is None or revised_file is None:
 else:
     try:
         with st.spinner("Loading files..."):
-            original_df = read_excel_clean(original_file, sheet_name=original_sheet_name or 0)
-            revised_df = read_excel_clean(revised_file, sheet_name=revised_sheet_name or 0)
+            original_df = read_excel_clean(
+                original_file,
+                sheet_name=original_sheet_name or 0,
+                password=original_password or None,
+            )
+            revised_df = read_excel_clean(
+                revised_file,
+                sheet_name=revised_sheet_name or 0,
+                password=revised_password or None,
+            )
             comparison = build_comparison(original_df, revised_df)
 
         changes_df = comparison["changes_df"]
