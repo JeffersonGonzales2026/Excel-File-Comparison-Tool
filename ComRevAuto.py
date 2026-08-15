@@ -18,13 +18,13 @@ st.set_page_config(
 
 
 HEADER_KEYWORDS = {
-    "customer no",
-    "customer name",
-    "pl number",
-    "bucket",
-    "ob",
-    "pap",
-    "pap_code",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
 }
 
 KEY_COLUMN_CANDIDATES = ("PL NUMBER", "Customer No.", "Customer No", "PL")
